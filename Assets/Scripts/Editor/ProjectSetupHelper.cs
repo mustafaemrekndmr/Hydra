@@ -31,7 +31,7 @@ public class ProjectSetupHelper : EditorWindow
         EditorSceneManager.OpenScene("Assets/Scenes/PoolScene.unity");
         
         // Clear the scene first
-        GameObject[] allObjects = GameObject.FindObjectsOfType<GameObject>();
+        GameObject[] allObjects = GameObject.FindObjectsByType<GameObject>(FindObjectsSortMode.None);
         foreach (GameObject obj in allObjects)
         {
             if (obj.transform.parent == null)

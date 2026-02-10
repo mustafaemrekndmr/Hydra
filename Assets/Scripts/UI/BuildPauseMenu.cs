@@ -38,7 +38,7 @@ public class BuildPauseMenu : MonoBehaviour
         GameObject canvasObj = GameObject.Find("GameCanvas");
         if (!canvasObj)
         {
-            Canvas existingCanvas = FindObjectOfType<Canvas>();
+            Canvas existingCanvas = FindAnyObjectByType<Canvas>();
             if (existingCanvas) 
             {
                 // Mevcut canvas'ı kullan ama adını GameCanvas yapma, olduğu gibi kalsın

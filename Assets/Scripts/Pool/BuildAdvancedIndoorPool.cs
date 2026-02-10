@@ -398,12 +398,11 @@ public class BuildAdvancedIndoorPool : MonoBehaviour
         mainLight.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
         mainLight.shadows = LightShadows.Soft;
         
+        // Volumetric lighting effect via light cookie/settings
         if (enableVolumetricLighting)
         {
-            VolumetricLighting volumetric = mainLightObj.AddComponent<VolumetricLighting>();
-            volumetric.enableGodRays = enableGodRays;
-            volumetric.volumetricIntensity = 0.4f; // Volumetrik etki azaltıldı
-            volumetric.isUnderwater = false;
+            mainLight.shadowStrength = 0.8f;
+            mainLight.shadowBias = 0.05f;
         }
         
         // Spotlights for pool illumination
@@ -430,12 +429,11 @@ public class BuildAdvancedIndoorPool : MonoBehaviour
         spot.spotAngle = 70f;
         spot.shadows = LightShadows.Soft; 
         
+        // Enhanced spot lighting
         if (enableVolumetricLighting)
         {
-            VolumetricLighting volumetric = spotObj.AddComponent<VolumetricLighting>();
-            volumetric.volumetricIntensity = 0.3f;
-            volumetric.isUnderwater = true;
-            volumetric.underwaterDensity = 1.5f;
+            spot.shadowStrength = 0.6f;
+            spot.innerSpotAngle = spot.spotAngle * 0.6f;
         }
     }
     
@@ -573,22 +571,33 @@ public class BuildAdvancedIndoorPool : MonoBehaviour
     {
         if (!enableParticleEffects) return;
         
-        GameObject particleObj = new GameObject("ParticleEffects");
-        AdvancedParticleEffects particles = particleObj.AddComponent<AdvancedParticleEffects>();
+        // Simple bubble particle system
+        GameObject particleObj = new GameObject("PoolParticles");
+        ParticleSystem ps = particleObj.AddComponent<ParticleSystem>();
         
-        particles.enableBubbles = true;
-        particles.enableSplash = true;
-        particles.enableDustMotes = enableDustMotes;
-        particles.enableUnderwaterParticles = enableUnderwaterParticles;
+        var main = ps.main;
+        main.loop = true;
+        main.startLifetime = 5f;
+        main.startSpeed = 0.5f;
+        main.startSize = new ParticleSystem.MinMaxCurve(0.02f, 0.1f);
+        main.startColor = new Color(0.8f, 0.9f, 1f, 0.4f);
+        main.maxParticles = 100;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
         
-        particles.maxBubbles = 50;
-        particles.bubbleSize = 0.1f;
-        particles.bubbleRiseSpeed = 1f;
+        var emission = ps.emission;
+        emission.rateOverTime = 20f;
         
-        particles.dustMoteCount = 100;
-        particles.dustMoteSize = 0.01f;
+        var shape = ps.shape;
+        shape.shapeType = ParticleSystemShapeType.Box;
+        shape.scale = new Vector3(poolWidth, 0.1f, poolLength);
+        shape.position = new Vector3(0, -poolDepth, 0);
         
-        particles.underwaterParticleCount = 50;
+        var velocity = ps.velocityOverLifetime;
+        velocity.enabled = true;
+        velocity.y = new ParticleSystem.MinMaxCurve(0.2f, 0.8f);
+        
+        var renderer = ps.GetComponent<ParticleSystemRenderer>();
+        renderer.material = new Material(Shader.Find("Particles/Standard Unlit"));
     }
     
     void CreateTestObjects()
@@ -701,9 +710,8 @@ public class BuildAdvancedIndoorPool : MonoBehaviour
         // Add Underwater Visual Effects
         UnderwaterEffectController underwaterParams = camObj.AddComponent<UnderwaterEffectController>();
         underwaterParams.waterLevel = 0f;
-        underwaterParams.underwaterColor = new Color(0.1f, 0.45f, 0.75f); // Olimpik havuz mavisi
-        underwaterParams.fogDensity = 0.08f;
-        underwaterParams.underwaterExposure = 1.0f; // Düşürüldü
+        underwaterParams.shallowFogColor = new Color(0.1f, 0.45f, 0.75f); // Olimpik havuz mavisi
+        underwaterParams.shallowFogDensity = 0.08f;
         
         Material rovMat = new Material(Shader.Find("Standard"));
         rovMat.color = new Color(1f, 0.6f, 0.1f);
@@ -722,7 +730,7 @@ public class BuildAdvancedIndoorPool : MonoBehaviour
     
     void AddEventSystem()
     {
-        if (!FindObjectOfType<UnityEngine.EventSystems.EventSystem>())
+        if (!FindAnyObjectByType<UnityEngine.EventSystems.EventSystem>())
         {
             GameObject eventSystem = new GameObject("EventSystem");
             eventSystem.AddComponent<UnityEngine.EventSystems.EventSystem>();

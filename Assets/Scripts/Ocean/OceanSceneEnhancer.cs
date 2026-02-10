@@ -1,141 +1,101 @@
 using UnityEngine;
 
 /// <summary>
-/// Master controller for all ocean scene enhancements
-/// Initializes and manages all atmospheric effects
+/// Master controller for all ocean scene enhancements.
+/// Finds existing scene elements (WaterSurface, Terrain) and
+/// initializes atmospheric + gameplay effects on top of them.
 /// </summary>
 public class OceanSceneEnhancer : MonoBehaviour
 {
-    [Header("Scene References")]
+    [Header("Scene References (auto-detected)")]
     public Camera mainCamera;
     public Transform rovTransform;
+    public Transform waterSurface;
     
     [Header("Enable/Disable Effects")]
     public bool enableParticles = true;
     public bool enableHUD = true;
     public bool enableCameraShake = true;
-    public bool enableGodRays = false; // DISABLED - too bright for dark atmosphere
-    public bool enableOceanFloor = true;
     public bool enableBioluminescence = true;
+    public bool enableSonar = true;
     
-    [Header("Effect Settings")]
-    [Range(0f, 1f)]
-    public float overallIntensity = 1f;
+    [Header("Water & Atmosphere")]
+    [Tooltip("Fog color tint for deep ocean")]
+    public Color deepOceanFog = new Color(0.02f, 0.1f, 0.2f, 1f);
+    public float fogDensity = 0.025f;
+    public Color ambientLight = new Color(0.05f, 0.15f, 0.25f);
     
-    private GameObject effectsContainer;
+    private bool initialized = false;
     
     void Start()
     {
-        InitializeEnhancements();
+        InitializeOcean();
     }
     
-    void InitializeEnhancements()
+    void InitializeOcean()
     {
-        Debug.Log("=== Initializing Ocean Scene Enhancements ===");
+        if (initialized) return;
+        initialized = true;
         
-        // Find references if not assigned
+        // ── Auto-detect references ──
         if (mainCamera == null)
             mainCamera = Camera.main;
         
         if (rovTransform == null)
-            rovTransform = GameObject.Find("ROV")?.transform;
-        
-        // Create container for all effects
-        effectsContainer = new GameObject("OceanEffects");
-        
-        // 1. Underwater Particles
-        if (enableParticles && mainCamera != null)
         {
-            GameObject particlesObj = new GameObject("ParticleSystem");
-            particlesObj.transform.SetParent(mainCamera.transform);
-            particlesObj.transform.localPosition = Vector3.zero;
-            
-            UnderwaterParticles particles = particlesObj.AddComponent<UnderwaterParticles>();
-            particles.particleCount = 200;
-            particles.spawnRadius = 20f;
-            
-            Debug.Log("✓ Underwater particles initialized");
+            GameObject rov = GameObject.Find("ROV");
+            if (rov != null) rovTransform = rov.transform;
         }
         
-        // 2. ROV HUD
+        if (waterSurface == null)
+        {
+            GameObject ws = GameObject.Find("WaterSurface");
+            if (ws != null) waterSurface = ws.transform;
+        }
+        
+        Rigidbody rovRb = rovTransform != null ? rovTransform.GetComponent<Rigidbody>() : null;
+        float waterY = waterSurface != null ? waterSurface.position.y : 10f;
+        
+        // Atmosphere is now handled by UnderwaterEffectController (depth gradient)
+        
+        // ── 3. Underwater Particles ──
+        if (enableParticles && mainCamera != null)
+        {
+            // Particles follow camera
+            UnderwaterParticles particles = mainCamera.gameObject.AddComponent<UnderwaterParticles>();
+        }
+        
+        // ── 4. ROV HUD with correct water level ──
         if (enableHUD && mainCamera != null)
         {
             ROVHUD hud = mainCamera.gameObject.AddComponent<ROVHUD>();
             hud.rovTransform = rovTransform;
-            if (rovTransform != null)
-                hud.rovRigidbody = rovTransform.GetComponent<Rigidbody>();
-            
-            Debug.Log("✓ ROV HUD initialized");
+            hud.rovRigidbody = rovRb;
+            hud.waterSurfaceY = waterY;
         }
         
-        // 3. Camera Shake
+        // ── 5. Camera Shake ──
         if (enableCameraShake && mainCamera != null)
         {
             UnderwaterCameraShake shake = mainCamera.gameObject.AddComponent<UnderwaterCameraShake>();
-            shake.shakeIntensity = 0.02f * overallIntensity;
-            if (rovTransform != null)
-                shake.rovRigidbody = rovTransform.GetComponent<Rigidbody>();
-            
-            Debug.Log("✓ Camera shake initialized");
+            shake.shakeIntensity = 0.015f;
+            shake.rovRigidbody = rovRb;
         }
         
-        // 4. God Rays
-        if (enableGodRays)
-        {
-            GameObject godRaysObj = new GameObject("GodRaysSystem");
-            godRaysObj.transform.SetParent(effectsContainer.transform);
-            
-            GodRaysEffect godRays = godRaysObj.AddComponent<GodRaysEffect>();
-            godRays.rayCount = 8;
-            godRays.surfaceHeight = 0f;
-            
-            Debug.Log("✓ God rays initialized");
-        }
-        
-        // 5. Ocean Floor
-        if (enableOceanFloor)
-        {
-            GameObject floorObj = new GameObject("FloorGenerator");
-            floorObj.transform.SetParent(effectsContainer.transform);
-            
-            OceanFloorGenerator floor = floorObj.AddComponent<OceanFloorGenerator>();
-            floor.floorDepth = -10f;
-            floor.rockCount = 30;
-            
-            Debug.Log("✓ Ocean floor initialized");
-        }
-        
-        // 6. Bioluminescent Life
+        // ── 6. Bioluminescent Life ──
         if (enableBioluminescence)
         {
-            GameObject bioObj = new GameObject("BioluminescentSystem");
-            bioObj.transform.SetParent(effectsContainer.transform);
-            
-            BioluminescentLife bio = bioObj.AddComponent<BioluminescentLife>();
-            bio.organismCount = 20;
-            bio.minDepth = -15f;
-            bio.maxDepth = -50f;
-            
-            Debug.Log("✓ Bioluminescent life initialized");
+            GameObject go = new GameObject("BioLife");
+            BioluminescentLife bio = go.AddComponent<BioluminescentLife>();
         }
         
-        Debug.Log("=== Ocean Scene Enhancement Complete ===");
-        Debug.Log("Press H to toggle HUD");
-        Debug.Log("Press L to toggle ROV lights");
-    }
-    
-    void OnGUI()
-    {
-        // Show initialization status
-        if (Time.time < 5f)
+        // ── 7. Sonar System ──
+        if (enableSonar && rovTransform != null)
         {
-            GUIStyle style = new GUIStyle(GUI.skin.label);
-            style.fontSize = 16;
-            style.normal.textColor = new Color(0.3f, 1f, 0.3f);
-            style.alignment = TextAnchor.LowerCenter;
-            
-            GUI.Label(new Rect(0, Screen.height - 50, Screen.width, 40), 
-                "Ocean Scene Enhanced - Realistic ROV Simulation Active", style);
+            ROVSonar sonar = rovTransform.gameObject.AddComponent<ROVSonar>();
+            sonar.sonarRange = 50f;
+            sonar.toggleKey = KeyCode.Tab;
         }
     }
 }
+

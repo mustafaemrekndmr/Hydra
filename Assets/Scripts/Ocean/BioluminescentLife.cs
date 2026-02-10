@@ -1,7 +1,8 @@
 using UnityEngine;
 
 /// <summary>
-/// Creates bioluminescent organisms that glow in deep water
+/// Creates bioluminescent organisms that glow in deep water.
+/// Optimized: cached Light refs, material sharing, reduced per-frame allocs.
 /// </summary>
 public class BioluminescentLife : MonoBehaviour
 {
@@ -21,12 +22,20 @@ public class BioluminescentLife : MonoBehaviour
     public float swimSpeed = 0.5f;
     public float wanderRadius = 5f;
     
-    private GameObject[] organisms;
+    [Header("Optimization")]
+    public bool proximityActivation = true;
+    public float activationDistance = 40f;
+    
+    private Transform[] organismTransforms;
+    private Light[] organismLights;
     private Vector3[] targetPositions;
     private float[] pulseTimes;
+    private Transform rovTransform;
+    private Material sharedGlowMaterial;
     
     void Start()
     {
+        rovTransform = GameObject.Find("ROV")?.transform;
         CreateBioluminescentOrganisms();
     }
     
@@ -34,37 +43,35 @@ public class BioluminescentLife : MonoBehaviour
     {
         GameObject container = new GameObject("BioluminescentLife");
         
-        organisms = new GameObject[organismCount];
+        organismTransforms = new Transform[organismCount];
+        organismLights = new Light[organismCount];
         targetPositions = new Vector3[organismCount];
         pulseTimes = new float[organismCount];
         
+        // Shared material for all organisms (huge perf win)
+        sharedGlowMaterial = new Material(Shader.Find("Standard"));
+        sharedGlowMaterial.EnableKeyword("_EMISSION");
+        sharedGlowMaterial.SetColor("_EmissionColor", glowColor * glowIntensity);
+        sharedGlowMaterial.color = glowColor;
+        
         for (int i = 0; i < organismCount; i++)
         {
-            // Random position in deep water
             float x = Random.Range(-spawnRadius, spawnRadius);
             float y = Random.Range(minDepth, maxDepth);
             float z = Random.Range(-spawnRadius, spawnRadius);
             Vector3 pos = new Vector3(x, y, z);
             
-            // Create organism (small glowing sphere)
             GameObject organism = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            organism.name = $"BioOrganism_{i}";
+            organism.name = $"BioOrg_{i}";
             organism.transform.SetParent(container.transform);
             organism.transform.position = pos;
             organism.transform.localScale = Vector3.one * Random.Range(0.1f, 0.3f);
             
-            // Glowing material
-            Renderer renderer = organism.GetComponent<Renderer>();
-            Material mat = new Material(Shader.Find("Standard"));
-            mat.EnableKeyword("_EMISSION");
-            mat.SetColor("_EmissionColor", glowColor * glowIntensity);
-            mat.color = glowColor;
-            renderer.material = mat;
+            // Use shared material
+            organism.GetComponent<Renderer>().sharedMaterial = sharedGlowMaterial;
             
-            // Remove collider
-            Collider collider = organism.GetComponent<Collider>();
-            if (collider != null)
-                Destroy(collider);
+            // Remove collider (not needed)
+            Object.Destroy(organism.GetComponent<Collider>());
             
             // Add point light
             Light light = organism.AddComponent<Light>();
@@ -73,46 +80,56 @@ public class BioluminescentLife : MonoBehaviour
             light.intensity = glowIntensity;
             light.range = glowRange;
             light.shadows = LightShadows.None;
+            light.renderMode = LightRenderMode.ForceVertex; // Cheaper rendering
             
-            organisms[i] = organism;
+            // Cache references
+            organismTransforms[i] = organism.transform;
+            organismLights[i] = light;
             targetPositions[i] = pos;
             pulseTimes[i] = Random.Range(0f, Mathf.PI * 2f);
         }
-        
-        Debug.Log($"Created {organismCount} bioluminescent organisms");
     }
     
     void Update()
     {
-        if (organisms == null) return;
+        if (organismTransforms == null) return;
         
-        for (int i = 0; i < organisms.Length; i++)
+        float deltaTime = Time.deltaTime;
+        Vector3 rovPos = rovTransform != null ? rovTransform.position : Vector3.zero;
+        
+        for (int i = 0; i < organismTransforms.Length; i++)
         {
-            if (organisms[i] == null) continue;
+            if (organismTransforms[i] == null) continue;
             
-            // Pulse glow
-            pulseTimes[i] += Time.deltaTime * pulseSpeed;
-            float pulse = (Mathf.Sin(pulseTimes[i]) + 1f) * 0.5f;
-            
-            Light light = organisms[i].GetComponent<Light>();
-            if (light != null)
+            // Proximity check: skip if too far
+            if (proximityActivation && rovTransform != null)
             {
-                light.intensity = glowIntensity * (0.5f + pulse * 0.5f);
+                float sqrDist = (organismTransforms[i].position - rovPos).sqrMagnitude;
+                float actDistSqr = activationDistance * activationDistance;
+                
+                bool inRange = sqrDist < actDistSqr;
+                organismLights[i].enabled = inRange;
+                
+                if (!inRange) continue; // Skip animation for distant organisms
             }
             
-            // Slow wandering movement
-            if (Vector3.Distance(organisms[i].transform.position, targetPositions[i]) < 0.5f)
+            // Pulse glow
+            pulseTimes[i] += deltaTime * pulseSpeed;
+            float pulse = (Mathf.Sin(pulseTimes[i]) + 1f) * 0.5f;
+            organismLights[i].intensity = glowIntensity * (0.5f + pulse * 0.5f);
+            
+            // Wandering movement
+            Vector3 currentPos = organismTransforms[i].position;
+            if ((currentPos - targetPositions[i]).sqrMagnitude < 0.25f)
             {
-                // Pick new target
-                targetPositions[i] = organisms[i].transform.position + Random.insideUnitSphere * wanderRadius;
+                targetPositions[i] = currentPos + Random.insideUnitSphere * wanderRadius;
                 targetPositions[i].y = Mathf.Clamp(targetPositions[i].y, maxDepth, minDepth);
             }
             
-            // Move towards target
-            organisms[i].transform.position = Vector3.MoveTowards(
-                organisms[i].transform.position,
+            organismTransforms[i].position = Vector3.MoveTowards(
+                currentPos,
                 targetPositions[i],
-                swimSpeed * Time.deltaTime
+                swimSpeed * deltaTime
             );
         }
     }

@@ -1,160 +1,169 @@
 using UnityEngine;
 
 /// <summary>
-/// Controls ROV spotlights with keyboard input
+/// Controls all ROV lights (front spots, work light, ambient).
+/// Keyboard: L = toggle all, F = toggle work light only.
+/// Finds lights by name convention under Hull.
 /// </summary>
 public class ROVLightController : MonoBehaviour
 {
-    [Header("Light References")]
-    public Light leftLight;
-    public Light rightLight;
+    [Header("Light References (auto-detected)")]
+    public Light[] frontSpots;
+    public Light workLight;
+    public Light ambientLight;
     
-    [Header("Control Settings")]
-    public KeyCode toggleKey = KeyCode.L; // L tuşu ile ışıkları aç/kapa
+    [Header("Controls")]
+    public KeyCode toggleAllKey = KeyCode.L;
+    public KeyCode toggleWorkKey = KeyCode.F;
     public bool lightsOn = true;
+    public bool workLightOn = true;
     
-    [Header("Light Settings")]
-    public float onIntensity = 5f; // Increased for more powerful lights
-    public float offIntensity = 0f;
-    public float fadeSpeed = 5f; // Yumuşak geçiş
+    [Header("Settings")]
+    public float spotIntensity = 6f;
+    public float workIntensity = 4f;
+    public float ambientIntensity = 1.5f;
+    public float fadeSpeed = 8f;
     
-    [Header("Audio (Optional)")]
-    public AudioClip lightToggleSound;
+    [Header("Audio")]
+    public AudioClip toggleSound;
     private AudioSource audioSource;
     
-    private float targetIntensity;
+    // Targets
+    private float spotTarget;
+    private float workTarget;
+    private float ambientTarget;
+    
+    /// <summary>
+    /// Property for other scripts to query
+    /// </summary>
+    public bool IsLightsOn => lightsOn;
     
     void Start()
     {
-        // Find lights if not assigned
-        if (leftLight == null || rightLight == null)
-        {
-            FindROVLights();
-        }
+        FindLights();
         
-        // Set initial state
-        targetIntensity = lightsOn ? onIntensity : offIntensity;
-        if (leftLight != null) leftLight.intensity = targetIntensity;
-        if (rightLight != null) rightLight.intensity = targetIntensity;
+        spotTarget = lightsOn ? spotIntensity : 0f;
+        workTarget = workLightOn ? workIntensity : 0f;
+        ambientTarget = lightsOn ? ambientIntensity : 0f;
         
-        // Setup audio
+        // Instant apply
+        ApplyInstant();
+        
         audioSource = GetComponent<AudioSource>();
-        if (audioSource == null && lightToggleSound != null)
-        {
-            audioSource = gameObject.AddComponent<AudioSource>();
-            audioSource.playOnAwake = false;
-        }
-        
-        Debug.Log($"ROV Light Controller initialized. Press '{toggleKey}' to toggle lights.");
     }
     
     void Update()
     {
-        // Toggle lights on key press
-        if (Input.GetKeyDown(toggleKey))
-        {
-            ToggleLights();
-        }
+        if (Input.GetKeyDown(toggleAllKey))
+            ToggleAll();
+        
+        if (Input.GetKeyDown(toggleWorkKey))
+            ToggleWorkLight();
         
         // Smooth fade
-        if (leftLight != null)
-        {
-            leftLight.intensity = Mathf.Lerp(leftLight.intensity, targetIntensity, Time.deltaTime * fadeSpeed);
-        }
-        if (rightLight != null)
-        {
-            rightLight.intensity = Mathf.Lerp(rightLight.intensity, targetIntensity, Time.deltaTime * fadeSpeed);
-        }
+        SmoothFade();
     }
     
-    public void ToggleLights()
+    public void ToggleAll()
     {
         lightsOn = !lightsOn;
-        targetIntensity = lightsOn ? onIntensity : offIntensity;
+        spotTarget = lightsOn ? spotIntensity : 0f;
+        ambientTarget = lightsOn ? ambientIntensity : 0f;
         
-        // Play sound
-        if (audioSource != null && lightToggleSound != null)
+        if (lightsOn)
         {
-            audioSource.PlayOneShot(lightToggleSound);
+            workLightOn = true;
+            workTarget = workIntensity;
+        }
+        else
+        {
+            workLightOn = false;
+            workTarget = 0f;
         }
         
-        Debug.Log($"ROV Lights: {(lightsOn ? "ON" : "OFF")}");
+        PlayToggleSound();
+    }
+    
+    public void ToggleWorkLight()
+    {
+        workLightOn = !workLightOn;
+        workTarget = workLightOn ? workIntensity : 0f;
+        PlayToggleSound();
     }
     
     public void SetLights(bool state)
     {
         lightsOn = state;
-        targetIntensity = lightsOn ? onIntensity : offIntensity;
+        spotTarget = lightsOn ? spotIntensity : 0f;
+        ambientTarget = lightsOn ? ambientIntensity : 0f;
+        if (!lightsOn) { workLightOn = false; workTarget = 0f; }
     }
     
-    void FindROVLights()
+    void SmoothFade()
     {
-        // Try to find lights in CameraMount flashlights
-        Transform cameraMount = transform.Find("Hull/CameraMount");
-        if (cameraMount != null)
+        float dt = Time.deltaTime * fadeSpeed;
+        
+        if (frontSpots != null)
         {
-            Transform leftFlashlight = cameraMount.Find("Flashlight_Left");
-            Transform rightFlashlight = cameraMount.Find("Flashlight_Right");
-            
-            if (leftFlashlight != null)
+            foreach (Light spot in frontSpots)
             {
-                Transform leftLightObj = leftFlashlight.Find("Light");
-                if (leftLightObj != null)
-                    leftLight = leftLightObj.GetComponent<Light>();
-            }
-            
-            if (rightFlashlight != null)
-            {
-                Transform rightLightObj = rightFlashlight.Find("Light");
-                if (rightLightObj != null)
-                    rightLight = rightLightObj.GetComponent<Light>();
+                if (spot != null)
+                    spot.intensity = Mathf.Lerp(spot.intensity, spotTarget, dt);
             }
         }
         
-        // Fallback: search in all children
-        if (leftLight == null || rightLight == null)
-        {
-            Light[] lights = GetComponentsInChildren<Light>();
-            
-            foreach (Light light in lights)
-            {
-                if (light.type == LightType.Spot)
-                {
-                    if (light.gameObject.name.Contains("Left") || light.transform.parent.name.Contains("Left"))
-                        leftLight = light;
-                    else if (light.gameObject.name.Contains("Right") || light.transform.parent.name.Contains("Right"))
-                        rightLight = light;
-                }
-            }
-        }
+        if (workLight != null)
+            workLight.intensity = Mathf.Lerp(workLight.intensity, workTarget, dt);
         
-        if (leftLight != null && rightLight != null)
-        {
-            Debug.Log("ROV flashlights found automatically!");
-        }
-        else
-        {
-            Debug.LogWarning("Could not find ROV flashlights. Please assign manually.");
-        }
+        if (ambientLight != null)
+            ambientLight.intensity = Mathf.Lerp(ambientLight.intensity, ambientTarget, dt);
     }
     
-    // Visual feedback in editor
-    void OnGUI()
+    void ApplyInstant()
     {
-        if (!Application.isPlaying) return;
+        if (frontSpots != null)
+        {
+            foreach (Light spot in frontSpots)
+                if (spot != null) spot.intensity = spotTarget;
+        }
+        if (workLight != null) workLight.intensity = workTarget;
+        if (ambientLight != null) ambientLight.intensity = ambientTarget;
+    }
+    
+    void PlayToggleSound()
+    {
+        if (audioSource != null && toggleSound != null)
+            audioSource.PlayOneShot(toggleSound);
+    }
+    
+    void FindLights()
+    {
+        Transform hull = transform.Find("Hull");
+        if (hull == null) hull = transform;
         
-        // Show light status in top-right corner
-        GUIStyle style = new GUIStyle(GUI.skin.label);
-        style.fontSize = 16;
-        style.normal.textColor = lightsOn ? Color.yellow : Color.gray;
-        style.alignment = TextAnchor.UpperRight;
+        // Find front spots
+        var spots = new System.Collections.Generic.List<Light>();
+        foreach (Transform child in hull)
+        {
+            if (child.name.Contains("SpotLight_Front"))
+            {
+                Light l = child.GetComponent<Light>();
+                if (l != null) spots.Add(l);
+            }
+            else if (child.name.Contains("WorkLight"))
+            {
+                workLight = child.GetComponent<Light>();
+            }
+            else if (child.name.Contains("AmbientLight"))
+            {
+                ambientLight = child.GetComponent<Light>();
+            }
+        }
         
-        string status = lightsOn ? "💡 LIGHTS ON" : "🌑 LIGHTS OFF";
-        GUI.Label(new Rect(Screen.width - 200, 10, 190, 30), status, style);
+        frontSpots = spots.ToArray();
         
-        // Show controls hint
-        style.fontSize = 12;
-        style.normal.textColor = Color.white;
-        GUI.Label(new Rect(Screen.width - 200, 40, 190, 20), $"Press '{toggleKey}' to toggle", style);
+        // Log what we found
+        if (frontSpots.Length == 0 && workLight == null)
+            Debug.LogWarning("ROVLightController: No lights found on ROV.");
     }
 }

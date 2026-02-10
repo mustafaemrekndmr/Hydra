@@ -1,7 +1,8 @@
 using UnityEngine;
 
 /// <summary>
-/// Creates floating particles in water (sediment, plankton, debris)
+/// Creates floating particles in water (sediment, plankton, debris).
+/// Optimized: fixed deprecated field name, proper cleanup.
 /// </summary>
 public class UnderwaterParticles : MonoBehaviour
 {
@@ -16,7 +17,7 @@ public class UnderwaterParticles : MonoBehaviour
     public float turbulenceStrength = 0.5f;
     public Vector3 currentDirection = new Vector3(0.1f, 0.05f, 0);
     
-    private ParticleSystem particleSystem;
+    private new ParticleSystem particleSystem; // 'new' to avoid hiding inherited member
     
     void Start()
     {
@@ -25,11 +26,8 @@ public class UnderwaterParticles : MonoBehaviour
     
     void CreateParticleSystem()
     {
-        GameObject particleObj = new GameObject("UnderwaterParticles");
-        particleObj.transform.SetParent(transform);
-        particleObj.transform.localPosition = Vector3.zero;
-        
-        particleSystem = particleObj.AddComponent<ParticleSystem>();
+        // Create as child of this transform (follows camera)
+        particleSystem = gameObject.AddComponent<ParticleSystem>();
         
         var main = particleSystem.main;
         main.loop = true;
@@ -39,6 +37,7 @@ public class UnderwaterParticles : MonoBehaviour
         main.startColor = particleColor;
         main.maxParticles = particleCount;
         main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.playOnAwake = true;
         
         // Emission
         var emission = particleSystem.emission;
@@ -53,9 +52,15 @@ public class UnderwaterParticles : MonoBehaviour
         var velocity = particleSystem.velocityOverLifetime;
         velocity.enabled = true;
         velocity.space = ParticleSystemSimulationSpace.World;
-        velocity.x = new ParticleSystem.MinMaxCurve(currentDirection.x - turbulenceStrength, currentDirection.x + turbulenceStrength);
-        velocity.y = new ParticleSystem.MinMaxCurve(currentDirection.y - turbulenceStrength * 0.5f, currentDirection.y + turbulenceStrength * 0.5f);
-        velocity.z = new ParticleSystem.MinMaxCurve(currentDirection.z - turbulenceStrength, currentDirection.z + turbulenceStrength);
+        velocity.x = new ParticleSystem.MinMaxCurve(
+            currentDirection.x - turbulenceStrength,
+            currentDirection.x + turbulenceStrength);
+        velocity.y = new ParticleSystem.MinMaxCurve(
+            currentDirection.y - turbulenceStrength * 0.5f,
+            currentDirection.y + turbulenceStrength * 0.5f);
+        velocity.z = new ParticleSystem.MinMaxCurve(
+            currentDirection.z - turbulenceStrength,
+            currentDirection.z + turbulenceStrength);
         
         // Noise (turbulence)
         var noise = particleSystem.noise;
@@ -64,22 +69,29 @@ public class UnderwaterParticles : MonoBehaviour
         noise.frequency = 0.5f;
         noise.scrollSpeed = 0.2f;
         
-        // Renderer
-        var renderer = particleSystem.GetComponent<ParticleSystemRenderer>();
-        renderer.renderMode = ParticleSystemRenderMode.Billboard;
-        renderer.material = new Material(Shader.Find("Particles/Standard Unlit"));
-        renderer.material.SetColor("_Color", particleColor);
+        // Size over lifetime (fade in/out)
+        var sol = particleSystem.sizeOverLifetime;
+        sol.enabled = true;
+        AnimationCurve sizeCurve = new AnimationCurve();
+        sizeCurve.AddKey(0f, 0f);
+        sizeCurve.AddKey(0.1f, 1f);
+        sizeCurve.AddKey(0.9f, 1f);
+        sizeCurve.AddKey(1f, 0f);
+        sol.size = new ParticleSystem.MinMaxCurve(1f, sizeCurve);
         
-        Debug.Log($"Underwater particles created: {particleCount} particles");
+        // Renderer
+        var psRenderer = particleSystem.GetComponent<ParticleSystemRenderer>();
+        psRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+        Material pMat = new Material(Shader.Find("Particles/Standard Unlit"));
+        pMat.SetColor("_Color", particleColor);
+        psRenderer.material = pMat;
     }
     
-    void Update()
+    void OnDestroy()
     {
-        // Keep particles around camera
         if (particleSystem != null)
         {
-            var shape = particleSystem.shape;
-            shape.position = Vector3.zero; // Relative to camera
+            particleSystem.Stop();
         }
     }
 }

@@ -1,26 +1,37 @@
 using UnityEngine;
 
 /// <summary>
-/// Forces constant dark atmosphere regardless of depth
-/// Overrides any depth-based lighting changes
+/// Legacy atmosphere controller - now handled by UnderwaterEffectController's
+/// depth-based gradient system. Kept for backward compatibility but does nothing
+/// in LateUpdate to avoid interfering with the depth gradient.
+/// Call ForceReapply() if you need a one-time override.
 /// </summary>
 public class ConstantDarkAtmosphere : MonoBehaviour
 {
-    [Header("Constant Dark Settings")]
-    public Color constantFogColor = new Color(0.015f, 0.18f, 0.3f, 1f); // Balanced dark blue
-    public float constantFogDensity = 0.05f; // Moderate fog
-    public Color constantAmbient = new Color(0.03f, 0.12f, 0.22f); // Visible but dark
-    public float constantSunIntensity = 0.35f; // Dim but present
+    [Header("Deep Ocean Settings (reference only)")]
+    public Color fogColor = new Color(0.02f, 0.1f, 0.2f, 1f);
+    public float fogDensity = 0.025f;
+    public Color ambientColor = new Color(0.05f, 0.15f, 0.25f);
+    public float sunIntensity = 0.5f;
+    public Color sunColor = new Color(0.3f, 0.5f, 0.7f);
     
     [Header("References")]
     public Light directionalLight;
     
     void Start()
     {
-        // Find directional light if not assigned
+        // Do nothing — UnderwaterEffectController handles atmosphere now
+        // This prevents double-application of settings that override the depth gradient
+    }
+    
+    /// <summary>
+    /// One-time override if needed
+    /// </summary>
+    public void ForceReapply()
+    {
         if (directionalLight == null)
         {
-            Light[] lights = FindObjectsOfType<Light>();
+            Light[] lights = FindObjectsByType<Light>(FindObjectsSortMode.None);
             foreach (Light light in lights)
             {
                 if (light.type == LightType.Directional)
@@ -31,33 +42,17 @@ public class ConstantDarkAtmosphere : MonoBehaviour
             }
         }
         
-        ApplyConstantDarkness();
-    }
-    
-    void LateUpdate()
-    {
-        // Force constant darkness every frame
-        // This overrides any other script trying to change lighting
-        ApplyConstantDarkness();
-    }
-    
-    void ApplyConstantDarkness()
-    {
-        // Force fog settings
         RenderSettings.fog = true;
-        RenderSettings.fogColor = constantFogColor;
-        RenderSettings.fogDensity = constantFogDensity;
+        RenderSettings.fogColor = fogColor;
+        RenderSettings.fogDensity = fogDensity;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
-        
-        // Force ambient
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-        RenderSettings.ambientLight = constantAmbient;
+        RenderSettings.ambientLight = ambientColor;
         
-        // Force directional light
         if (directionalLight != null)
         {
-            directionalLight.intensity = constantSunIntensity;
-            directionalLight.color = new Color(0.2f, 0.3f, 0.5f); // Dim blue
+            directionalLight.intensity = sunIntensity;
+            directionalLight.color = sunColor;
         }
     }
 }

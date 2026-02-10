@@ -68,7 +68,7 @@ public class AdvancedBuoyancy : MonoBehaviour
         GenerateVoxelPoints();
         
         if (waterShader == null)
-            waterShader = FindObjectOfType<AdvancedWaterShader>();
+            waterShader = FindAnyObjectByType<AdvancedWaterShader>();
     }
     
     void FixedUpdate()

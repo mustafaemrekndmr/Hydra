@@ -1,7 +1,8 @@
 using UnityEngine;
 
 /// <summary>
-/// Creates a realistic ocean floor with rocks, sand, and underwater terrain
+/// Creates a realistic ocean floor with rocks and sand.
+/// Optimized: shared materials, removed unnecessary colliders, static batching.
 /// </summary>
 public class OceanFloorGenerator : MonoBehaviour
 {
@@ -20,6 +21,10 @@ public class OceanFloorGenerator : MonoBehaviour
     public float terrainNoiseScale = 0.1f;
     public float terrainHeight = 2f;
     
+    [Header("Optimization")]
+    public bool enableStaticBatching = true;
+    public bool removeColliders = true;
+    
     void Start()
     {
         CreateOceanFloor();
@@ -35,6 +40,7 @@ public class OceanFloorGenerator : MonoBehaviour
         floor.transform.SetParent(floorContainer.transform);
         floor.transform.position = new Vector3(0, floorDepth, 0);
         floor.transform.localScale = new Vector3(floorSize / 10f, 1, floorSize / 10f);
+        floor.isStatic = enableStaticBatching;
         
         // Floor material
         Renderer floorRenderer = floor.GetComponent<Renderer>();
@@ -47,7 +53,11 @@ public class OceanFloorGenerator : MonoBehaviour
         // Add rocks
         CreateRocks(floorContainer.transform);
         
-        Debug.Log($"Ocean floor created at depth {floorDepth}m with {rockCount} rocks");
+        // Batch static objects
+        if (enableStaticBatching)
+        {
+            StaticBatchingUtility.Combine(floorContainer);
+        }
     }
     
     void CreateRocks(Transform parent)
@@ -55,36 +65,51 @@ public class OceanFloorGenerator : MonoBehaviour
         GameObject rocksContainer = new GameObject("Rocks");
         rocksContainer.transform.SetParent(parent);
         
+        // Shared rock materials (3 variations instead of 30 unique)
+        Material[] rockMats = new Material[3];
+        for (int m = 0; m < 3; m++)
+        {
+            rockMats[m] = new Material(Shader.Find("Standard"));
+            rockMats[m].color = rockColor * Random.Range(0.85f, 1.15f);
+            rockMats[m].SetFloat("_Glossiness", Random.Range(0.1f, 0.3f));
+            rockMats[m].SetFloat("_Metallic", 0f);
+        }
+        
         for (int i = 0; i < rockCount; i++)
         {
-            // Random position on floor
             float x = Random.Range(-floorSize / 2f, floorSize / 2f);
             float z = Random.Range(-floorSize / 2f, floorSize / 2f);
-            float y = floorDepth + Random.Range(0f, terrainHeight);
             
-            // Create rock
+            // Use Perlin noise for more natural height variation
+            float noiseY = Mathf.PerlinNoise(
+                x * terrainNoiseScale + 100f,
+                z * terrainNoiseScale + 100f
+            ) * terrainHeight;
+            float y = floorDepth + noiseY;
+            
             GameObject rock = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             rock.name = $"Rock_{i}";
             rock.transform.SetParent(rocksContainer.transform);
             rock.transform.position = new Vector3(x, y, z);
+            rock.isStatic = enableStaticBatching;
             
             // Random size and deformation
             float size = Random.Range(minRockSize, maxRockSize);
-            float scaleX = size * Random.Range(0.7f, 1.3f);
-            float scaleY = size * Random.Range(0.5f, 1.0f);
-            float scaleZ = size * Random.Range(0.7f, 1.3f);
-            rock.transform.localScale = new Vector3(scaleX, scaleY, scaleZ);
-            
-            // Random rotation
+            rock.transform.localScale = new Vector3(
+                size * Random.Range(0.7f, 1.3f),
+                size * Random.Range(0.5f, 1.0f),
+                size * Random.Range(0.7f, 1.3f)
+            );
             rock.transform.rotation = Random.rotation;
             
-            // Rock material
-            Renderer rockRenderer = rock.GetComponent<Renderer>();
-            Material rockMat = new Material(Shader.Find("Standard"));
-            rockMat.color = rockColor * Random.Range(0.8f, 1.2f);
-            rockMat.SetFloat("_Glossiness", Random.Range(0.1f, 0.3f));
-            rockMat.SetFloat("_Metallic", 0f);
-            rockRenderer.material = rockMat;
+            // Use shared material (one of 3 variants)
+            rock.GetComponent<Renderer>().sharedMaterial = rockMats[i % 3];
+            
+            // Remove colliders on rocks (ROV won't collide with them)
+            if (removeColliders)
+            {
+                Object.Destroy(rock.GetComponent<Collider>());
+            }
         }
     }
 }

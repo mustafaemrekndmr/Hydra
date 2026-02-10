@@ -1,193 +1,118 @@
 using UnityEngine;
 
 /// <summary>
-/// Controls underwater visual effects including fog, color grading, and improved lighting
+/// Controls underwater visual effects with depth-based smooth gradients.
+/// The scene is ALWAYS underwater — we never switch to skybox/void.
+/// Fog, ambient light, and camera color smoothly shift based on depth.
+/// Auto-detects WaterSurface GameObject for proper water level.
 /// </summary>
 [RequireComponent(typeof(Camera))]
 public class UnderwaterEffectController : MonoBehaviour
 {
-    [Header("Water Settings")]
-    public float waterLevel = 0f;
+    [Header("Water Settings (auto-detected)")]
+    public float waterLevel = 10f;
     
-    [Header("Underwater Visuals")]
-    public Color underwaterColor = new Color(0.02f, 0.2f, 0.35f, 1f); // Balanced ocean blue
-    public float fogDensity = 0.05f; // Moderate fog for visibility
-    public float nearClipPlane = 0.1f;
+    [Header("Shallow Water (near surface)")]
+    public Color shallowFogColor = new Color(0.04f, 0.15f, 0.28f);
+    public Color shallowAmbient = new Color(0.06f, 0.18f, 0.3f);
+    public float shallowFogDensity = 0.018f;
     
-    [Header("Lighting Adjustments")]
-    public float underwaterExposure = 0.6f; // Balanced exposure
-    public Color ambientColor = new Color(0.04f, 0.15f, 0.28f); // Visible ambient
-    public Color sunlightColor = new Color(0.35f, 0.55f, 0.75f); // Balanced sunlight
-    public float sunlightIntensity = 0.4f; // Moderate intensity
+    [Header("Deep Water (max depth)")]
+    public Color deepFogColor = new Color(0.01f, 0.04f, 0.1f);
+    public Color deepAmbient = new Color(0.02f, 0.06f, 0.12f);
+    public float deepFogDensity = 0.04f;
     
-    [Header("Depth-Based Effects")]
-    public bool enableDepthGradient = false; // DISABLED - constant dark atmosphere
-    public float maxDepth = 50f;
-    public Color deepWaterColor = new Color(0.005f, 0.05f, 0.1f, 1f); // Almost black at depth
+    [Header("Depth Gradient")]
+    [Tooltip("Depth at which deep-water look is fully applied")]
+    public float maxGradientDepth = 30f;
     
-    [Header("Particle Effects")]
-    public bool enableParticles = true;
-    public GameObject particlePrefab; // Optional: floating particles
+    [Header("Directional Light")]
+    public float shallowSunIntensity = 0.6f;
+    public float deepSunIntensity = 0.15f;
+    public Color sunColor = new Color(0.3f, 0.5f, 0.7f);
     
-    // Private state
-    private bool isUnderwater = false;
-    private Color defaultFogColor;
-    private float defaultFogDensity;
-    private Material defaultSkybox;
-    private Color defaultAmbientColor;
+    // State
     private Camera cam;
     private Light directionalLight;
-    private Color defaultLightColor;
-    private float defaultLightIntensity;
-    private GameObject particleSystem;
+    private float currentDepth;
+    private float smoothDepth;
+    
+    /// <summary>Always true in ocean scene</summary>
+    public bool IsUnderwater => true;
     
     void Start()
     {
         cam = GetComponent<Camera>();
         
-        // Find directional light (sun)
-        directionalLight = FindObjectOfType<Light>();
-        if (directionalLight != null && directionalLight.type == LightType.Directional)
+        // Auto-detect water surface
+        GameObject waterSurface = GameObject.Find("WaterSurface");
+        if (waterSurface != null)
+            waterLevel = waterSurface.transform.position.y;
+        
+        // Find directional light
+        Light[] lights = FindObjectsByType<Light>(FindObjectsSortMode.None);
+        foreach (Light light in lights)
         {
-            defaultLightColor = directionalLight.color;
-            defaultLightIntensity = directionalLight.intensity;
+            if (light.type == LightType.Directional)
+            {
+                directionalLight = light;
+                break;
+            }
         }
         
-        // Store default settings
-        defaultFogColor = RenderSettings.fogColor;
-        defaultFogDensity = RenderSettings.fogDensity;
-        defaultSkybox = RenderSettings.skybox;
-        defaultAmbientColor = RenderSettings.ambientLight;
+        // Force camera to solid color always (no skybox void)
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.nearClipPlane = 0.1f;
+        cam.farClipPlane = 150f;
         
-        // Initial check
-        CheckWaterState();
+        // Initial setup
+        RenderSettings.fog = true;
+        RenderSettings.fogMode = FogMode.ExponentialSquared;
+        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+        RenderSettings.defaultReflectionMode = UnityEngine.Rendering.DefaultReflectionMode.Custom;
+        
+        smoothDepth = Mathf.Max(0f, waterLevel - transform.position.y);
+        ApplyDepthEffects(smoothDepth);
     }
     
     void Update()
     {
-        CheckWaterState();
+        // Calculate current depth from water surface
+        currentDepth = Mathf.Max(0f, waterLevel - transform.position.y);
         
-        // Depth-based effects DISABLED - keep constant dark atmosphere
-        // if (isUnderwater && enableDepthGradient)
-        // {
-        //     UpdateDepthEffects();
-        // }
+        // Smooth depth changes for visual comfort
+        smoothDepth = Mathf.Lerp(smoothDepth, currentDepth, Time.deltaTime * 3f);
+        
+        ApplyDepthEffects(smoothDepth);
     }
     
-    void CheckWaterState()
+    void ApplyDepthEffects(float depth)
     {
-        // Simple height check for water level
-        if (transform.position.y < waterLevel - 0.1f)
-        {
-            if (!isUnderwater) EnterWater();
-        }
-        else
-        {
-            if (isUnderwater) ExitWater();
-        }
-    }
-    
-    void UpdateDepthEffects()
-    {
-        // Calculate depth below water surface
-        float depth = Mathf.Abs(transform.position.y - waterLevel);
-        float depthRatio = Mathf.Clamp01(depth / maxDepth);
+        // Normalized depth ratio (0 = surface, 1 = maxGradientDepth or deeper)
+        float t = Mathf.Clamp01(depth / maxGradientDepth);
         
-        // Gradually darken as we go deeper
-        Color currentFogColor = Color.Lerp(underwaterColor, deepWaterColor, depthRatio);
-        RenderSettings.fogColor = currentFogColor;
-        cam.backgroundColor = currentFogColor;
+        // Smooth curve for more natural transition
+        float curve = t * t * (3f - 2f * t); // smoothstep
         
-        // Increase fog density with depth
-        float currentFogDensity = Mathf.Lerp(fogDensity, fogDensity * 2f, depthRatio);
-        RenderSettings.fogDensity = currentFogDensity;
+        // ── Fog ──
+        Color fogColor = Color.Lerp(shallowFogColor, deepFogColor, curve);
+        float fogDensity = Mathf.Lerp(shallowFogDensity, deepFogDensity, curve);
         
-        // Dim light with depth
-        if (directionalLight != null)
-        {
-            float lightIntensity = Mathf.Lerp(sunlightIntensity, sunlightIntensity * 0.3f, depthRatio);
-            directionalLight.intensity = lightIntensity;
-        }
-    }
-    
-    void EnterWater()
-    {
-        isUnderwater = true;
-        
-        // 1. Enable Fog
-        RenderSettings.fog = true;
-        RenderSettings.fogColor = underwaterColor;
+        RenderSettings.fogColor = fogColor;
         RenderSettings.fogDensity = fogDensity;
-        RenderSettings.fogMode = FogMode.ExponentialSquared; // Realistic falloff
         
-        // 2. Change Camera Background
-        cam.clearFlags = CameraClearFlags.SolidColor;
-        cam.backgroundColor = underwaterColor;
-        cam.nearClipPlane = nearClipPlane;
+        // ── Camera background (matches fog so no void visible) ──
+        cam.backgroundColor = fogColor;
         
-        // 3. Adjust Lighting Atmosphere
-        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-        RenderSettings.ambientLight = ambientColor;
+        // ── Ambient light ──
+        Color ambient = Color.Lerp(shallowAmbient, deepAmbient, curve);
+        RenderSettings.ambientLight = ambient;
         
-        // 4. Adjust Directional Light (Sun)
+        // ── Directional light ──
         if (directionalLight != null)
         {
-            directionalLight.color = sunlightColor;
-            directionalLight.intensity = sunlightIntensity;
+            directionalLight.intensity = Mathf.Lerp(shallowSunIntensity, deepSunIntensity, curve);
+            directionalLight.color = sunColor;
         }
-        
-        // 5. Disable Skybox reflection
-        RenderSettings.defaultReflectionMode = UnityEngine.Rendering.DefaultReflectionMode.Custom;
-        
-        // 6. Add floating particles (optional)
-        if (enableParticles && particlePrefab != null && particleSystem == null)
-        {
-            particleSystem = Instantiate(particlePrefab, transform.position, Quaternion.identity);
-            particleSystem.transform.SetParent(transform);
-        }
-        
-        Debug.Log("Entering Underwater Mode - Deep Ocean Atmosphere");
-    }
-    
-    void ExitWater()
-    {
-        isUnderwater = false;
-        
-        // 1. Restore Fog
-        RenderSettings.fogColor = defaultFogColor;
-        RenderSettings.fogDensity = defaultFogDensity;
-        
-        // 2. Restore Camera Background
-        if (defaultSkybox != null)
-        {
-            cam.clearFlags = CameraClearFlags.Skybox;
-            RenderSettings.skybox = defaultSkybox;
-        }
-        else
-        {
-            cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = defaultFogColor;
-        }
-        
-        // 3. Restore Lighting
-        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Skybox;
-        RenderSettings.ambientLight = defaultAmbientColor;
-        RenderSettings.defaultReflectionMode = UnityEngine.Rendering.DefaultReflectionMode.Skybox;
-        
-        // 4. Restore Directional Light
-        if (directionalLight != null)
-        {
-            directionalLight.color = defaultLightColor;
-            directionalLight.intensity = defaultLightIntensity;
-        }
-        
-        // 5. Remove particles
-        if (particleSystem != null)
-        {
-            Destroy(particleSystem);
-            particleSystem = null;
-        }
-        
-        Debug.Log("Exiting Underwater Mode");
     }
 }
