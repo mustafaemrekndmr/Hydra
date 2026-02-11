@@ -23,6 +23,20 @@ public class ROVHUD : MonoBehaviour
     
     private float currentBattery;
     private float missionTime;
+    private bool isBeingCharged = false;
+    
+    /// <summary>Battery percentage (0-100)</summary>
+    public float BatteryPercent => Mathf.Max(0f, (currentBattery / maxBatteryLife) * 100f);
+    
+    /// <summary>True when battery is completely empty</summary>
+    public bool IsBatteryDead => currentBattery <= 0f;
+    
+    /// <summary>Add battery charge from external source (e.g. charging station)</summary>
+    public void AddBattery(float amount)
+    {
+        currentBattery = Mathf.Min(currentBattery + amount, maxBatteryLife);
+        isBeingCharged = true;
+    }
     
     // Cached styles
     private GUIStyle hudStyle;
@@ -72,6 +86,9 @@ public class ROVHUD : MonoBehaviour
         
         if (currentBattery > 0)
             currentBattery -= Time.deltaTime;
+        
+        // Reset charging flag each frame (ChargingStation sets it via AddBattery)
+        isBeingCharged = false;
         
         missionTime += Time.deltaTime;
         
@@ -204,8 +221,28 @@ public class ROVHUD : MonoBehaviour
         ly += lh;
         
         // Status
-        string status = batteryPercent < 10f ? "LOW POWER" : "OPERATIONAL";
-        GUIStyle statusStyle = batteryPercent < 10f ? dangerStyle : hudStyle;
+        string status;
+        GUIStyle statusStyle;
+        if (currentBattery <= 0f)
+        {
+            status = "POWER DEAD";
+            statusStyle = dangerStyle;
+        }
+        else if (isBeingCharged)
+        {
+            status = "CHARGING";
+            statusStyle = warningStyle;
+        }
+        else if (batteryPercent < 10f)
+        {
+            status = "LOW POWER";
+            statusStyle = dangerStyle;
+        }
+        else
+        {
+            status = "OPERATIONAL";
+            statusStyle = hudStyle;
+        }
         GUI.Label(new Rect(lx, ly, 240, 20), $"STATUS   {status}", statusStyle);
     }
     

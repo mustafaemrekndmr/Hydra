@@ -32,6 +32,10 @@ public class ROVController : MonoBehaviour
     private float currentCameraTilt = 0f;
     private bool depthHoldActive = false;
     private float waterSurfaceY = 10f;
+    private ROVHUD rovHUD;
+    
+    /// <summary>True when battery is dead and thrusters are offline</summary>
+    public bool IsPowerDead => rovHUD != null && rovHUD.IsBatteryDead;
 
     // Cached input values for FixedUpdate
     private float inputForward;
@@ -75,6 +79,11 @@ public class ROVController : MonoBehaviour
         }
         
         targetDepth = transform.position.y;
+        
+        // Find HUD for battery check
+        rovHUD = GetComponent<ROVHUD>();
+        if (rovHUD == null)
+            rovHUD = FindAnyObjectByType<ROVHUD>();
     }
 
     void Update()
@@ -86,6 +95,15 @@ public class ROVController : MonoBehaviour
     void FixedUpdate()
     {
         if (rb == null) return;
+        
+        // Battery dead = no thruster power, but surface force still works
+        if (IsPowerDead)
+        {
+            ApplyStabilization(); // Keep upright
+            ApplySurfaceForce();  // Don't float to space
+            LimitVelocity();
+            return;
+        }
         
         ApplyThrusters(inputForward, inputStrafe, inputVertical, inputRotation);
         ApplyStabilization();

@@ -54,11 +54,25 @@ public class ROVLightController : MonoBehaviour
     
     void Update()
     {
-        if (Input.GetKeyDown(toggleAllKey))
-            ToggleAll();
+        // Check battery — no power = no lights
+        ROVController controller = GetComponent<ROVController>();
+        bool powerDead = controller != null && controller.IsPowerDead;
         
-        if (Input.GetKeyDown(toggleWorkKey))
-            ToggleWorkLight();
+        if (!powerDead)
+        {
+            if (Input.GetKeyDown(toggleAllKey))
+                ToggleAll();
+            
+            if (Input.GetKeyDown(toggleWorkKey))
+                ToggleWorkLight();
+        }
+        else
+        {
+            // Force all targets to 0
+            spotTarget = 0f;
+            workTarget = 0f;
+            ambientTarget = 0f;
+        }
         
         // Smooth fade
         SmoothFade();

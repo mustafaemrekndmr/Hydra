@@ -69,6 +69,14 @@ public class AdvancedBuoyancy : MonoBehaviour
         
         if (waterShader == null)
             waterShader = FindAnyObjectByType<AdvancedWaterShader>();
+        
+        // Auto-detect water surface level from WaterSurface object
+        if (waterShader == null)
+        {
+            GameObject ws = GameObject.Find("WaterSurface");
+            if (ws != null)
+                waterSurfaceY = ws.transform.position.y;
+        }
     }
     
     void FixedUpdate()

@@ -58,7 +58,8 @@ public class ROVSonar : MonoBehaviour
         Unknown,
         Terrain,
         Object,
-        Living
+        Living,
+        Station  // Charging station — red on sonar
     }
     
     void Start()
@@ -181,6 +182,8 @@ public class ROVSonar : MonoBehaviour
             ContactType type = ContactType.Object;
             if (hit.GetComponent<Terrain>() != null || hit.GetComponent<TerrainCollider>() != null)
                 type = ContactType.Terrain;
+            else if (hit.gameObject.name.Contains("Charging") || hit.GetComponent<ChargingStation>() != null)
+                type = ContactType.Station;
             else if (hit.GetComponent<Light>() != null)
                 type = ContactType.Living; // bioluminescent
             
@@ -300,13 +303,17 @@ public class ROVSonar : MonoBehaviour
                 case ContactType.Living:
                     blipColor = new Color(0.2f, 0.5f, 1f, alpha); // blue
                     break;
+                case ContactType.Station:
+                    blipColor = new Color(1f, 0.15f, 0.1f, alpha); // RED — charging station
+                    break;
                 default:
                     blipColor = new Color(0.2f, 1f, 0.3f, alpha); // green
                     break;
             }
             
             // Draw blip (size based on type)
-            float blipSize = contact.type == ContactType.Terrain ? 6f : 4f;
+            float blipSize = contact.type == ContactType.Terrain ? 6f : 
+                             contact.type == ContactType.Station ? 8f : 4f;
             GUI.color = blipColor;
             GUI.DrawTexture(new Rect(bx - blipSize / 2, by - blipSize / 2, blipSize, blipSize), blipTex);
             GUI.color = Color.white;

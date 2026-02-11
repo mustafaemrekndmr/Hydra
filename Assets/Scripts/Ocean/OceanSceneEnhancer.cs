@@ -1,9 +1,10 @@
 using UnityEngine;
 
 /// <summary>
-/// Master controller for all ocean scene enhancements.
-/// Finds existing scene elements (WaterSurface, Terrain) and
-/// initializes atmospheric + gameplay effects on top of them.
+/// Master controller for ocean scene runtime effects.
+/// Finds EXISTING ROV and ChargingStation in the scene (built by Editor tool),
+/// then adds runtime-only scripts: HUD, Sonar, Particles, Camera effects.
+/// Does NOT create or destroy scene objects.
 /// </summary>
 public class OceanSceneEnhancer : MonoBehaviour
 {
@@ -19,12 +20,6 @@ public class OceanSceneEnhancer : MonoBehaviour
     public bool enableBioluminescence = true;
     public bool enableSonar = true;
     
-    [Header("Water & Atmosphere")]
-    [Tooltip("Fog color tint for deep ocean")]
-    public Color deepOceanFog = new Color(0.02f, 0.1f, 0.2f, 1f);
-    public float fogDensity = 0.025f;
-    public Color ambientLight = new Color(0.05f, 0.15f, 0.25f);
-    
     private bool initialized = false;
     
     void Start()
@@ -37,36 +32,52 @@ public class OceanSceneEnhancer : MonoBehaviour
         if (initialized) return;
         initialized = true;
         
-        // ── Auto-detect references ──
-        if (mainCamera == null)
-            mainCamera = Camera.main;
-        
-        if (rovTransform == null)
-        {
-            GameObject rov = GameObject.Find("ROV");
-            if (rov != null) rovTransform = rov.transform;
-        }
-        
+        // ── Auto-detect scene references ──
         if (waterSurface == null)
         {
             GameObject ws = GameObject.Find("WaterSurface");
             if (ws != null) waterSurface = ws.transform;
         }
         
-        Rigidbody rovRb = rovTransform != null ? rovTransform.GetComponent<Rigidbody>() : null;
         float waterY = waterSurface != null ? waterSurface.position.y : 10f;
         
-        // Atmosphere is now handled by UnderwaterEffectController (depth gradient)
-        
-        // ── 3. Underwater Particles ──
-        if (enableParticles && mainCamera != null)
+        // ── Find existing ROV (created by Editor tool) ──
+        if (rovTransform == null)
         {
-            // Particles follow camera
-            UnderwaterParticles particles = mainCamera.gameObject.AddComponent<UnderwaterParticles>();
+            GameObject rov = GameObject.Find("ROV");
+            if (rov != null) rovTransform = rov.transform;
         }
         
-        // ── 4. ROV HUD with correct water level ──
-        if (enableHUD && mainCamera != null)
+        if (rovTransform == null)
+        {
+            Debug.LogError("OceanSceneEnhancer: No ROV found! Run Tools > Build Ocean Scene Objects first.");
+            return;
+        }
+        
+        // Find camera on ROV
+        mainCamera = rovTransform.GetComponentInChildren<Camera>();
+        Rigidbody rovRb = rovTransform.GetComponent<Rigidbody>();
+        
+        if (mainCamera == null)
+        {
+            Debug.LogError("OceanSceneEnhancer: No Camera found on ROV!");
+            return;
+        }
+        
+        // ══════════════════════════════════════
+        // ADD RUNTIME EFFECTS (only if not already present)
+        // ══════════════════════════════════════
+        
+        // UnderwaterEffectController
+        if (mainCamera.GetComponent<UnderwaterEffectController>() == null)
+            mainCamera.gameObject.AddComponent<UnderwaterEffectController>();
+        
+        // Particles
+        if (enableParticles && mainCamera.GetComponent<UnderwaterParticles>() == null)
+            mainCamera.gameObject.AddComponent<UnderwaterParticles>();
+        
+        // HUD
+        if (enableHUD && mainCamera.GetComponent<ROVHUD>() == null)
         {
             ROVHUD hud = mainCamera.gameObject.AddComponent<ROVHUD>();
             hud.rovTransform = rovTransform;
@@ -74,28 +85,29 @@ public class OceanSceneEnhancer : MonoBehaviour
             hud.waterSurfaceY = waterY;
         }
         
-        // ── 5. Camera Shake ──
-        if (enableCameraShake && mainCamera != null)
+        // Camera Shake
+        if (enableCameraShake && mainCamera.GetComponent<UnderwaterCameraShake>() == null)
         {
             UnderwaterCameraShake shake = mainCamera.gameObject.AddComponent<UnderwaterCameraShake>();
             shake.shakeIntensity = 0.015f;
             shake.rovRigidbody = rovRb;
         }
         
-        // ── 6. Bioluminescent Life ──
-        if (enableBioluminescence)
+        // Bioluminescent Life
+        if (enableBioluminescence && FindAnyObjectByType<BioluminescentLife>() == null)
         {
             GameObject go = new GameObject("BioLife");
-            BioluminescentLife bio = go.AddComponent<BioluminescentLife>();
+            go.AddComponent<BioluminescentLife>();
         }
         
-        // ── 7. Sonar System ──
-        if (enableSonar && rovTransform != null)
+        // Sonar
+        if (enableSonar && rovTransform.GetComponent<ROVSonar>() == null)
         {
             ROVSonar sonar = rovTransform.gameObject.AddComponent<ROVSonar>();
             sonar.sonarRange = 50f;
             sonar.toggleKey = KeyCode.Tab;
         }
+        
+        Debug.Log("<color=green>OceanSceneEnhancer: Runtime effects initialized on existing ROV.</color>");
     }
 }
-
